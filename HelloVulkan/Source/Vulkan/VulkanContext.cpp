@@ -410,7 +410,8 @@ VkResult VulkanContext::CreateSwapchain(VkSurfaceKHR surface)
 		.imageArrayLayers = 1,
 		.imageUsage =
 			VK_IMAGE_USAGE_COLOR_ATTACHMENT_BIT |
-			VK_IMAGE_USAGE_TRANSFER_DST_BIT,
+			VK_IMAGE_USAGE_TRANSFER_DST_BIT |
+			VK_IMAGE_USAGE_TRANSFER_SRC_BIT,
 		.imageSharingMode = VK_SHARING_MODE_EXCLUSIVE,
 		.queueFamilyIndexCount = 1,
 		.pQueueFamilyIndices = &graphicsFamily_,

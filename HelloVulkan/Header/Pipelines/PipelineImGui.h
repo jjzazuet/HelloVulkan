@@ -34,6 +34,10 @@ public:
 
 	void SetCameraUBO(VulkanContext& ctx, CameraUBO& ubo) override {}
 	void FillCommandBuffer(VulkanContext& ctx, VkCommandBuffer commandBuffer) override;
+	bool skipInGroundTruthCapture() const override
+	{
+		return true;
+	}
 
 private:
 	Scene* scene_{};

@@ -46,6 +46,7 @@ void AppBase::InitGLFW()
 		throw std::runtime_error(std::string("GLFW Error: ") + description);
 	});
 	
+	glfwInitHint(GLFW_PLATFORM, GLFW_PLATFORM_X11);
 	glfwInit();
 	glfwWindowHint(GLFW_CLIENT_API, GLFW_NO_API);
 	glfwWindowHint(GLFW_RESIZABLE, GLFW_TRUE);
@@ -93,6 +94,113 @@ void AppBase::InitGLFW()
 }
 
 // TODO Analyze this function for possible performance improvement
+
+void AppBase::RecordGroundTruthCapture(VkCommandBuffer commandBuffer, uint32_t swapchainImageIndex)
+{
+	const uint32_t width = vulkanContext_.GetSwapchainWidth();
+	const uint32_t height = vulkanContext_.GetSwapchainHeight();
+	if (captureStaging_.buffer_ == nullptr)
+	{
+		captureStaging_.CreateBuffer(
+			vulkanContext_,
+			static_cast<VkDeviceSize>(width) * height * 4,
+			VK_BUFFER_USAGE_TRANSFER_DST_BIT,
+			VMA_MEMORY_USAGE_CPU_ONLY);
+	}
+
+	const VkImage image = vulkanContext_.GetSwapchainImage(swapchainImageIndex);
+	const VkImageMemoryBarrier toTransfer = {
+		.sType = VK_STRUCTURE_TYPE_IMAGE_MEMORY_BARRIER,
+		.srcAccessMask = 0,
+		.dstAccessMask = VK_ACCESS_TRANSFER_READ_BIT,
+		.oldLayout = VK_IMAGE_LAYOUT_PRESENT_SRC_KHR,
+		.newLayout = VK_IMAGE_LAYOUT_TRANSFER_SRC_OPTIMAL,
+		.srcQueueFamilyIndex = VK_QUEUE_FAMILY_IGNORED,
+		.dstQueueFamilyIndex = VK_QUEUE_FAMILY_IGNORED,
+		.image = image,
+		.subresourceRange = {VK_IMAGE_ASPECT_COLOR_BIT, 0, 1, 0, 1},
+	};
+	vkCmdPipelineBarrier(commandBuffer,
+		VK_PIPELINE_STAGE_BOTTOM_OF_PIPE_BIT, VK_PIPELINE_STAGE_TRANSFER_BIT,
+		0, 0, nullptr, 0, nullptr, 1, &toTransfer);
+
+	const VkBufferImageCopy region = {
+		.bufferOffset = 0,
+		.bufferRowLength = 0,
+		.bufferImageHeight = 0,
+		.imageSubresource = {VK_IMAGE_ASPECT_COLOR_BIT, 0, 0, 1},
+		.imageOffset = {0, 0, 0},
+		.imageExtent = {width, height, 1},
+	};
+	vkCmdCopyImageToBuffer(commandBuffer, image,
+		VK_IMAGE_LAYOUT_TRANSFER_SRC_OPTIMAL, captureStaging_.buffer_, 1, &region);
+
+	const VkImageMemoryBarrier toPresent = {
+		.sType = VK_STRUCTURE_TYPE_IMAGE_MEMORY_BARRIER,
+		.srcAccessMask = VK_ACCESS_TRANSFER_READ_BIT,
+		.dstAccessMask = 0,
+		.oldLayout = VK_IMAGE_LAYOUT_TRANSFER_SRC_OPTIMAL,
+		.newLayout = VK_IMAGE_LAYOUT_PRESENT_SRC_KHR,
+		.srcQueueFamilyIndex = VK_QUEUE_FAMILY_IGNORED,
+		.dstQueueFamilyIndex = VK_QUEUE_FAMILY_IGNORED,
+		.image = image,
+		.subresourceRange = {VK_IMAGE_ASPECT_COLOR_BIT, 0, 1, 0, 1},
+	};
+	vkCmdPipelineBarrier(commandBuffer,
+		VK_PIPELINE_STAGE_TRANSFER_BIT, VK_PIPELINE_STAGE_BOTTOM_OF_PIPE_BIT,
+		0, 0, nullptr, 0, nullptr, 1, &toPresent);
+}
+
+void AppBase::WriteGroundTruthImage()
+{
+	const char* path = std::getenv("ZTGFX_GROUND_TRUTH_IMAGE");
+	if (path == nullptr || path[0] == '\0')
+	{
+		return;
+	}
+	const uint32_t width = vulkanContext_.GetSwapchainWidth();
+	const uint32_t height = vulkanContext_.GetSwapchainHeight();
+	const VkFormat format = vulkanContext_.GetSwapchainImageFormat();
+	const bool bgra =
+		format == VK_FORMAT_B8G8R8A8_UNORM || format == VK_FORMAT_B8G8R8A8_SRGB;
+
+	void* mapped = nullptr;
+	vmaMapMemory(captureStaging_.vmaAllocator_, captureStaging_.vmaAllocation_, &mapped);
+	const auto* pixels = static_cast<const uint8_t*>(mapped);
+
+	FILE* out = fopen(path, "wb");
+	if (out == nullptr)
+	{
+		throw std::runtime_error(std::string("cannot open ground-truth image ") + path);
+	}
+	fprintf(out, "P6\n%u %u\n255\n", width, height);
+	for (uint32_t y = 0; y < height; ++y)
+	{
+		for (uint32_t x = 0; x < width; ++x)
+		{
+			const uint8_t* pixel = pixels + (static_cast<size_t>(y) * width + x) * 4;
+			const uint8_t rgb[3] = {
+				bgra ? pixel[2] : pixel[0],
+				pixel[1],
+				bgra ? pixel[0] : pixel[2],
+			};
+			fwrite(rgb, 1, 3, out);
+		}
+	}
+	fclose(out);
+	vmaUnmapMemory(captureStaging_.vmaAllocator_, captureStaging_.vmaAllocation_);
+
+	std::string metaPath = std::string(path) + ".json";
+	FILE* meta = fopen(metaPath.c_str(), "wb");
+	if (meta != nullptr)
+	{
+		fprintf(meta,
+			"{\"width\":%u,\"height\":%u,\"format\":%d,\"frame\":%u}\n",
+			width, height, static_cast<int>(format), captureFrame_);
+		fclose(meta);
+	}
+}
+
 void AppBase::DrawFrame()
 {
 	FrameData& frameData = vulkanContext_.GetCurrentFrameData();
@@ -160,6 +268,13 @@ void AppBase::DrawFrame()
 	
 		VK_CHECK(vkQueueSubmit(vulkanContext_.GetGraphicsQueue(), 1, &submitInfo, frameData.queueSubmitFence_));
 	}
+
+	if (capturePending_)
+	{
+		vkQueueWaitIdle(vulkanContext_.GetGraphicsQueue());
+		WriteGroundTruthImage();
+		std::exit(0);
+	}
 	
 	{
 		ZoneScopedNC("QueuePresentKHR", tracy::Color::VioletRed1);
@@ -219,13 +334,26 @@ void AppBase::FillCommandBuffer(VkCommandBuffer commandBuffer)
 		TracyVkZoneC(vulkanContext_.GetTracyContext(), commandBuffer, "Render", tracy::Color::OrangeRed);
 
 		// Iterate through all pipelines to fill the command buffer
+		const bool groundTruth = std::getenv("ZTGFX_GROUND_TRUTH_IMAGE") != nullptr;
 		for (const auto& pip : pipelines_)
 		{
+			if (groundTruth && pip->skipInGroundTruthCapture())
+			{
+				continue;
+			}
 			pip->FillCommandBuffer(vulkanContext_, commandBuffer);
 		}
 	}
 
 	TracyVkCollect(vulkanContext_.GetTracyContext(), commandBuffer);
+
+	if (std::getenv("ZTGFX_GROUND_TRUTH_IMAGE") != nullptr && captureFrame_ >= 2
+		&& !capturePending_)
+	{
+		RecordGroundTruthCapture(commandBuffer, vulkanContext_.GetCurrentSwapchainImageIndex());
+		capturePending_ = true;
+	}
+	++captureFrame_;
 
 	VK_CHECK(vkEndCommandBuffer(commandBuffer));
 }

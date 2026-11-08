@@ -406,3 +406,5 @@ CMakeFiles/
 *.cmake
 
 CMakeCache.txt
+build-x11/
+imgui.ini

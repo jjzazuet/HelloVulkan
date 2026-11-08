@@ -41,6 +41,12 @@ public:
 	{
 	}
 
+	// UI overlays are omitted from a ground-truth capture; scene passes are not.
+	virtual bool skipInGroundTruthCapture() const
+	{
+		return false;
+	}
+
 	virtual void SetCameraUBO(VulkanContext& ctx, CameraUBO& ubo)
 	{
 		const uint32_t frameIndex = ctx.GetFrameIndex();

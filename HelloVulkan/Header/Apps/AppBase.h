@@ -3,6 +3,7 @@
 
 #include "VulkanInstance.h"
 #include "VulkanContext.h"
+#include "VulkanBuffer.h"
 #include "ResourcesShared.h"
 #include "ResourcesIBL.h"
 #include "PipelineBase.h"
@@ -96,6 +97,13 @@ protected:
 
 	// A list of resources containing buffers and images
 	std::vector<std::unique_ptr<ResourcesBase>> resources_{};
+
+	// Ground-truth capture (ZTGFX_GROUND_TRUTH_IMAGE)
+	void RecordGroundTruthCapture(VkCommandBuffer commandBuffer, uint32_t swapchainImageIndex);
+	void WriteGroundTruthImage();
+	VulkanBuffer captureStaging_{};
+	uint32_t captureFrame_ = 0;
+	bool capturePending_ = false;
 
 	// Window size
 	uint32_t windowWidth_ = 0;
