@@ -13,6 +13,7 @@
 
 // STL
 #include <memory>
+#include <string>
 
 /*
 Clustered forward PBR
@@ -27,8 +28,10 @@ public:
 
 	void Init();
 	void InitLights();
+	std::string GroundTruthMetadata() const override;
 
 private:
+	std::vector<LightData> lights_{};
 	PipelineLightRender* lightPtr_{};
 	PipelineImGui* imguiPtr_{};
 	PipelinePBRClusterForward* pbrOpaquePtr_{};

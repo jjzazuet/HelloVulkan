@@ -15,6 +15,7 @@
 #include "GLFW/glfw3.h"
 
 #include <memory>
+#include <string>
 #include <type_traits>
 
 class AppBase
@@ -101,6 +102,8 @@ protected:
 	// Ground-truth capture (ZTGFX_GROUND_TRUTH_IMAGE)
 	void RecordGroundTruthCapture(VkCommandBuffer commandBuffer, uint32_t swapchainImageIndex);
 	void WriteGroundTruthImage();
+	// App-specific JSON fragment (scene, camera, lights, settings).
+	virtual std::string GroundTruthMetadata() const { return {}; }
 	VulkanBuffer captureStaging_{};
 	uint32_t captureFrame_ = 0;
 	bool capturePending_ = false;

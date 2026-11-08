@@ -12,6 +12,8 @@
 #include "glm/ext.hpp"
 #include "imgui_impl_vulkan.h"
 
+#include <sstream>
+
 AppPBRClusterForward::AppPBRClusterForward() 
 {
 }
@@ -113,6 +115,7 @@ void AppPBRClusterForward::InitLights()
 		lights.push_back(l);
 	}
 
+	lights_ = lights;
 	resourcesLight_ = AddResources<ResourcesLight>();
 	resourcesLight_->AddLights(vulkanContext_, lights);
 }
@@ -157,6 +160,49 @@ void AppPBRClusterForward::UpdateUI()
 }
 
 // This is called from main.cpp
+
+std::string AppPBRClusterForward::GroundTruthMetadata() const
+{
+	std::ostringstream out;
+	const CameraUBO cam = camera_->GetCameraUBO();
+	const float width = static_cast<float>(vulkanContext_.GetSwapchainWidth());
+	const float height = static_cast<float>(vulkanContext_.GetSwapchainHeight());
+
+	out << "\"scene\":\"Assets/Models/Sponza/Sponza.gltf\",";
+	out << "\"camera\":{\"position\":[" << cam.position.x << "," << cam.position.y
+		<< "," << cam.position.z << "],\"target\":[0,2.5,0],\"yfov\":"
+		<< CameraConfig::Zoom << ",\"aspect\":" << (width / height)
+		<< ",\"near\":" << cam.cameraNear << ",\"far\":" << cam.cameraFar
+		<< ",\"view\":[";
+	for (int c = 0; c < 4; ++c)
+		for (int r = 0; r < 4; ++r)
+			out << (c || r ? "," : "") << cam.view[c][r];
+	out << "],\"projection\":[";
+	for (int c = 0; c < 4; ++c)
+		for (int r = 0; r < 4; ++r)
+			out << (c || r ? "," : "") << cam.projection[c][r];
+	out << "]},";
+
+	out << "\"settings\":{\"ibl\":\"Assets/Textures/dikhololo_night_4k.hdr\","
+		<< "\"tonemap\":\"reinhard+gamma\",\"gamma\":2.2,\"msaa\":"
+		<< static_cast<int>(resourcesShared_->multiSampledColorImage_.multisampleCount_)
+		<< ",\"orb\":{\"radius\":0.1,\"orbSize\":0.7,\"glowFalloff\":2.0,"
+		<< "\"glowStrength\":0.5}},";
+
+	out << "\"lights\":[";
+	for (size_t i = 0; i < lights_.size(); ++i)
+	{
+		const LightData& light = lights_[i];
+		if (i) out << ",";
+		out << "{\"position\":[" << light.position_.x << "," << light.position_.y
+			<< "," << light.position_.z << "],\"color\":[" << light.color_.x << ","
+			<< light.color_.y << "," << light.color_.z << "],\"radius\":"
+			<< light.radius_ << "}";
+	}
+	out << "]";
+	return out.str();
+}
+
 void AppPBRClusterForward::MainLoop()
 {
 	InitVulkan({
