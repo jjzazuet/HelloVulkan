@@ -106,7 +106,7 @@ protected:
 	virtual std::string GroundTruthMetadata() const { return {}; }
 	// App-specific exact capture state (float bits, raw buffers) written
 	// next to the image so Java parity can reproduce inputs bit-for-bit.
-	virtual void WriteGroundTruthCaptureState(const std::string& imagePath) const {
+	virtual void WriteGroundTruthCaptureState(const std::string& imagePath) {
 		(void)imagePath;
 	}
 	VulkanBuffer captureStaging_{};

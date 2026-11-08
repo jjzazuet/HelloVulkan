@@ -282,7 +282,7 @@ void WriteBits(std::ostringstream& out, const float* values, size_t count)
 }
 } // namespace
 
-void AppPBRClusterForward::WriteGroundTruthCaptureState(const std::string& imagePath) const
+void AppPBRClusterForward::WriteGroundTruthCaptureState(const std::string& imagePath)
 {
 	// Exact light buffer: 48-byte std430 stride used by the shaders. Padding is
 	// zeroed so the file is deterministic (the GPU never reads it).
@@ -309,6 +309,83 @@ void AppPBRClusterForward::WriteGroundTruthCaptureState(const std::string& image
 		std::fwrite(lightBytes.data(), 1, lightBytes.size(), file);
 		std::fclose(file);
 	}
+
+	// Depth buffer readback: needed to explain orb occlusion-boundary pixels.
+	const VulkanImage& depthImage = resourcesShared_->depthImage_;
+	uint32_t depthBytesPerPixel = 4;
+	if (depthImage.imageFormat_ == VK_FORMAT_D16_UNORM)
+	{
+		depthBytesPerPixel = 2;
+	}
+	const uint32_t depthWidth = vulkanContext_.GetSwapchainWidth();
+	const uint32_t depthHeight = vulkanContext_.GetSwapchainHeight();
+	const size_t depthSize = static_cast<size_t>(depthWidth) * depthHeight * depthBytesPerPixel;
+	VulkanBuffer depthStaging;
+	depthStaging.CreateBuffer(
+		vulkanContext_, static_cast<VkDeviceSize>(depthSize),
+		VK_BUFFER_USAGE_TRANSFER_DST_BIT, VMA_MEMORY_USAGE_CPU_ONLY);
+	{
+		VkCommandBuffer cb = vulkanContext_.BeginOneTimeGraphicsCommand();
+		VulkanImage::TransitionLayoutCommand(
+			cb, depthImage.image_, depthImage.imageFormat_,
+			VK_IMAGE_LAYOUT_DEPTH_STENCIL_ATTACHMENT_OPTIMAL,
+			VK_IMAGE_LAYOUT_TRANSFER_SRC_OPTIMAL);
+		const VkBufferImageCopy region = {
+			.bufferOffset = 0,
+			.bufferRowLength = 0,
+			.bufferImageHeight = 0,
+			.imageSubresource = {VK_IMAGE_ASPECT_DEPTH_BIT, 0, 0, 1},
+			.imageOffset = {0, 0, 0},
+			.imageExtent = {depthWidth, depthHeight, 1},
+		};
+		vkCmdCopyImageToBuffer(
+			cb, depthImage.image_, VK_IMAGE_LAYOUT_TRANSFER_SRC_OPTIMAL,
+			depthStaging.buffer_, 1, &region);
+		VulkanImage::TransitionLayoutCommand(
+			cb, depthImage.image_, depthImage.imageFormat_,
+			VK_IMAGE_LAYOUT_TRANSFER_SRC_OPTIMAL,
+			VK_IMAGE_LAYOUT_DEPTH_STENCIL_ATTACHMENT_OPTIMAL);
+		vulkanContext_.EndOneTimeGraphicsCommand(cb);
+	}
+	std::vector<uint8_t> depthBytes(depthSize);
+	depthStaging.DownloadBufferData(vulkanContext_, depthBytes.data(), depthSize);
+	const std::string depthPath = imagePath + ".depth.bin";
+	if (FILE* file = std::fopen(depthPath.c_str(), "wb"))
+	{
+		std::fwrite(depthBytes.data(), 1, depthBytes.size(), file);
+		std::fclose(file);
+	}
+	depthStaging.Destroy();
+
+	// Cluster cell and light-index buffers, to diff Java CPU culling against the
+	// C++ compute pass. Both are GPU-only, so copy through a staging buffer.
+	auto dumpDeviceBuffer = [&](VulkanBuffer& src, VkDeviceSize size, const std::string& path)
+	{
+		VulkanBuffer staging;
+		staging.CreateBuffer(vulkanContext_, size,
+			VK_BUFFER_USAGE_TRANSFER_DST_BIT, VMA_MEMORY_USAGE_CPU_ONLY);
+		VkCommandBuffer cb = vulkanContext_.BeginOneTimeGraphicsCommand();
+		const VkBufferCopy region = {.srcOffset = 0, .dstOffset = 0, .size = size};
+		vkCmdCopyBuffer(cb, src.buffer_, staging.buffer_, 1, &region);
+		vulkanContext_.EndOneTimeGraphicsCommand(cb);
+		std::vector<uint8_t> data(size);
+		staging.DownloadBufferData(vulkanContext_, data.data(), size);
+		if (FILE* file = std::fopen(path.c_str(), "wb"))
+		{
+			std::fwrite(data.data(), 1, data.size(), file);
+			std::fclose(file);
+		}
+		staging.Destroy();
+	};
+	constexpr VkDeviceSize CELLS_SIZE =
+		static_cast<VkDeviceSize>(ClusterForwardConfig::ClusterCount) * 8;
+	constexpr VkDeviceSize INDICES_SIZE =
+		static_cast<VkDeviceSize>(ClusterForwardConfig::maxLightPerCluster) *
+		ClusterForwardConfig::ClusterCount * sizeof(uint32_t);
+	dumpDeviceBuffer(resCF_->lightCellsBuffer_, CELLS_SIZE, imagePath + ".cells.bin");
+	dumpDeviceBuffer(resCF_->lightIndicesBuffer_, INDICES_SIZE, imagePath + ".indices.bin");
+
+	const ClusterForwardUBO cluster = camera_->GetClusterForwardUBO();
 
 	const CameraUBO cam = camera_->GetCameraUBO();
 	const glm::mat4 inverseView = glm::inverse(cam.view);
@@ -347,6 +424,23 @@ void AppPBRClusterForward::WriteGroundTruthCaptureState(const std::string& image
 		<< ",\"vertexCount\":6,\"msaa\":1}";
 	out << ",\"tonemap\":{\"exposure\":\"" << HexBits(1.0f) << "\""
 		<< ",\"gamma\":\"" << HexBits(2.2f) << "\"}";
+	out << ",\"cluster\":{\"screenSize\":[\"" << HexBits(cluster.screenSize.x)
+		<< "\",\"" << HexBits(cluster.screenSize.y) << "\"]"
+		<< ",\"sliceScaling\":\"" << HexBits(cluster.sliceScaling) << "\""
+		<< ",\"sliceBias\":\"" << HexBits(cluster.sliceBias) << "\""
+		<< ",\"cameraNear\":\"" << HexBits(cluster.cameraNear) << "\""
+		<< ",\"cameraFar\":\"" << HexBits(cluster.cameraFar) << "\""
+		<< ",\"sliceCountX\":" << cluster.sliceCountX
+		<< ",\"sliceCountY\":" << cluster.sliceCountY
+		<< ",\"sliceCountZ\":" << cluster.sliceCountZ << "}";
+	out << ",\"depth\":{\"file\":\"depth.bin\",\"format\":"
+		<< static_cast<int>(depthImage.imageFormat_)
+		<< ",\"width\":" << depthWidth << ",\"height\":" << depthHeight
+		<< ",\"bytesPerPixel\":" << depthBytesPerPixel << "}";
+	out << ",\"clusters\":{\"cells\":\"cells.bin\",\"indices\":\"indices.bin\""
+		<< ",\"count\":" << ClusterForwardConfig::ClusterCount
+		<< ",\"cellStride\":8"
+		<< ",\"maxLightPerCluster\":" << ClusterForwardConfig::maxLightPerCluster << "}";
 	out << "}";
 
 	const std::string statePath = imagePath + ".state.json";

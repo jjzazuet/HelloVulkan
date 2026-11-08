@@ -25,7 +25,9 @@ void ResourcesShared::Create(VulkanContext& ctx)
 		width,
 		height,
 		1u, // layerCount
-		msaaSamples);
+		msaaSamples,
+		// Ground-truth capture: allow reading the depth buffer back.
+		VK_IMAGE_USAGE_TRANSFER_SRC_BIT);
 	depthImage_.SetDebugName(ctx, "Depth_Image");
 
 	// Color attachments
