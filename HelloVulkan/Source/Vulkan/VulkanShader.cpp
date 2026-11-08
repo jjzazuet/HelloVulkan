@@ -3,6 +3,7 @@
 
 #include <iostream>
 #include <cstring>
+#include <cstdlib>
 
 #include <glslang/Public/resource_limits_c.h>
 
@@ -63,10 +64,38 @@ size_t VulkanShader::CompileShaderFile(const char* file)
 	std::string shaderSource = ReadShaderFile(file);
 	if (!shaderSource.empty())
 	{
-		return CompileShader(GLSLangShaderStageFromFileName(file), shaderSource.c_str());
+		const size_t size = CompileShader(GLSLangShaderStageFromFileName(file), shaderSource.c_str());
+		DumpGroundTruthSpirv(file, size);
+		return size;
 	}
 
 	return 0;
+}
+
+void VulkanShader::DumpGroundTruthSpirv(const char* file, size_t size)
+{
+	const char* dumpDir = std::getenv("ZTGFX_DUMP_SPIRV");
+	if (size < 1 || dumpDir == nullptr || dumpDir[0] == '\0')
+	{
+		return;
+	}
+
+	std::string name(file);
+	const auto slash = name.find_last_of("/\\");
+	if (slash != std::string::npos)
+	{
+		name = name.substr(slash + 1);
+	}
+
+	const std::string path = std::string(dumpDir) + "/" + name + ".spv";
+	FILE* out = fopen(path.c_str(), "wb");
+	if (out == nullptr)
+	{
+		return;
+	}
+
+	fwrite(spirv_.data(), sizeof(unsigned int), spirv_.size(), out);
+	fclose(out);
 }
 
 std::string VulkanShader::ReadShaderFile(const char* fileName)

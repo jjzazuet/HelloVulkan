@@ -39,6 +39,7 @@ private:
 	[[nodiscard]] size_t CompileShaderFile(const char* file);
 	[[nodiscard]] std::string ReadShaderFile(const char* fileName);
 	[[nodiscard]] size_t CompileShader(glslang_stage_t stage, const char* shaderSource);
+	void DumpGroundTruthSpirv(const char* file, size_t size);
 	void PrintShaderSource(const char* text);
 };
 

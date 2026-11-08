@@ -195,7 +195,7 @@ void AppBase::WriteGroundTruthImage()
 	if (meta != nullptr)
 	{
 		fprintf(meta,
-			"{\"width\":%u,\"height\":%u,\"format\":%d,\"frame\":%u",
+			"{\"version\":2,\"width\":%u,\"height\":%u,\"format\":%d,\"frame\":%u",
 			width, height, static_cast<int>(format), captureFrame_);
 		const std::string extra = GroundTruthMetadata();
 		if (!extra.empty())

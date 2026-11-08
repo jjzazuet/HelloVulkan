@@ -70,11 +70,27 @@ void AppPBRClusterForward::Init()
 		resourcesIBL_,
 		resourcesShared_,
 		MaterialType::Transparent);
-	lightPtr_ = AddPipeline<PipelineLightRender>(vulkanContext_, resourcesLight_, resourcesShared_);
-	// Resolve multiSampledColorImage_ to singleSampledColorImage_
-	AddPipeline<PipelineResolveMS>(vulkanContext_, resourcesShared_);
-	// This is on-screen render pass that transfers singleSampledColorImage_ to swapchain image
-	AddPipeline<PipelineTonemap>(vulkanContext_, &(resourcesShared_->singleSampledColorImage_));
+	// The Java reference renderer is single-sample, so the ground-truth capture
+	// runs without MSAA: no resolve pass, and the tonemap samples the offscreen
+	// colour image directly.
+	const bool multisampled =
+		resourcesShared_->multiSampledColorImage_.multisampleCount_ != VK_SAMPLE_COUNT_1_BIT;
+	lightPtr_ = AddPipeline<PipelineLightRender>(
+		vulkanContext_,
+		resourcesLight_,
+		resourcesShared_,
+		multisampled ? 0u : RenderPassBit::ColorShaderReadOnly);
+	if (multisampled)
+	{
+		// Resolve multiSampledColorImage_ to singleSampledColorImage_
+		AddPipeline<PipelineResolveMS>(vulkanContext_, resourcesShared_);
+	}
+	// This is on-screen render pass that transfers the colour image to the swapchain
+	AddPipeline<PipelineTonemap>(
+		vulkanContext_,
+		multisampled
+			? &(resourcesShared_->singleSampledColorImage_)
+			: &(resourcesShared_->multiSampledColorImage_));
 	imguiPtr_ = AddPipeline<PipelineImGui>(vulkanContext_, vulkanInstance_.GetInstance(), glfwWindow_);
 	// Present swapchain image
 	AddPipeline<PipelineFinish>(vulkanContext_);
@@ -183,6 +199,35 @@ std::string AppPBRClusterForward::GroundTruthMetadata() const
 			out << (c || r ? "," : "") << cam.projection[c][r];
 	out << "]},";
 
+	out << "\"light\":{\"position\":[" << lights_[0].position_.x << ","
+		<< lights_[0].position_.y << "," << lights_[0].position_.z
+		<< "],\"color\":[" << lights_[0].color_.x << "," << lights_[0].color_.y
+		<< "," << lights_[0].color_.z << "],\"radius\":" << lights_[0].radius_
+		<< ",\"count\":" << lights_.size() << ",\"seed\":\"0x5EED\"},";
+
+	const glm::mat4 inverseView = glm::inverse(cam.view);
+	out << "\"uniforms\":{\"projection\":[";
+	for (int c = 0; c < 4; ++c)
+		for (int r = 0; r < 4; ++r)
+			out << (c || r ? "," : "") << cam.projection[c][r];
+	out << "],\"modelview\":[";
+	for (int c = 0; c < 4; ++c)
+		for (int r = 0; r < 4; ++r)
+			out << (c || r ? "," : "") << cam.view[c][r];
+	out << "],\"inverseModelview\":[";
+	for (int c = 0; c < 4; ++c)
+		for (int r = 0; r < 4; ++r)
+			out << (c || r ? "," : "") << inverseView[c][r];
+	out << "],\"exposure\":1},";
+
+	VkPhysicalDeviceProperties deviceProperties{};
+	vkGetPhysicalDeviceProperties(vulkanContext_.GetPhysicalDevice(), &deviceProperties);
+	out << "\"device\":{\"name\":\"" << deviceProperties.deviceName
+		<< "\",\"driverVersion\":" << deviceProperties.driverVersion
+		<< ",\"apiVersion\":" << deviceProperties.apiVersion
+		<< ",\"vendorID\":" << deviceProperties.vendorID
+		<< ",\"deviceID\":" << deviceProperties.deviceID << "},";
+
 	out << "\"settings\":{\"ibl\":\"Assets/Textures/dikhololo_night_4k.hdr\","
 		<< "\"tonemap\":\"reinhard+gamma\",\"gamma\":2.2,\"msaa\":"
 		<< static_cast<int>(resourcesShared_->multiSampledColorImage_.multisampleCount_)
@@ -207,7 +252,9 @@ void AppPBRClusterForward::MainLoop()
 {
 	InitVulkan({
 		.suportBufferDeviceAddress_ = true,
-		.supportMSAA_ = true
+		// Single-sample capture: the Java reference renderer used for parity
+		// does not implement MSAA yet.
+		.supportMSAA_ = false
 		});
 
 	Init();
