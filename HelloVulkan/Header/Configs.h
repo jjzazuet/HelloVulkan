@@ -58,7 +58,7 @@ namespace ClusterForwardConfig
 namespace IBLConfig
 {
 	constexpr uint32_t OutputDiffuseSampleCount = 1024;
-	constexpr uint32_t InputCubeSideLength = 1024;
+	constexpr uint32_t InputCubeSideLength = 256;
 	constexpr uint32_t OutputDiffuseSideLength = 32;
 	constexpr uint32_t OutputSpecularSideLength = 128;
 	constexpr uint32_t LayerCount = 6;

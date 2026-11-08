@@ -31,6 +31,10 @@ void AppPBRClusterForward::Init()
 
 	// Image-Based Lighting
 	resourcesIBL_ = AddResources<ResourcesIBL>(vulkanContext_, AppConfig::TextureFolder + "dikhololo_night_4k.hdr");
+	if (const char* iblDump = std::getenv("ZTGFX_IBL_DUMP"))
+	{
+		resourcesIBL_->Dump(vulkanContext_, iblDump);
+	}
 
 	resCF_ = AddResources<ResourcesClusterForward>();
 	resCF_->CreateBuffers(vulkanContext_, resourcesLight_->GetLightCount());
