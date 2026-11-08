@@ -9,8 +9,8 @@ namespace Utility
 	inline float RandomNumber()
 	{
 		static std::uniform_real_distribution<float> distribution(0.0, 1.0);
-		static std::random_device rd;
-		static std::mt19937 generator(rd());
+		// Ground-truth capture: fixed light set so the image is reproducible.
+		static std::mt19937 generator(0x5EEDu);
 		return distribution(generator);
 	}
 

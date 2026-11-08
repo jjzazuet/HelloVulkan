@@ -49,6 +49,7 @@ void AppBase::InitGLFW()
 	glfwInit();
 	glfwWindowHint(GLFW_CLIENT_API, GLFW_NO_API);
 	glfwWindowHint(GLFW_RESIZABLE, GLFW_TRUE);
+	glfwWindowHint(GLFW_SCALE_FRAMEBUFFER, GLFW_FALSE);
 
 	constexpr int w = AppConfig::InitialScreenWidth;
 	constexpr int h = AppConfig::InitialScreenHeight;

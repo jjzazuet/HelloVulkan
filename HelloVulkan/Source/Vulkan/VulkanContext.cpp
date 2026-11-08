@@ -605,9 +605,11 @@ bool VulkanContext::IsDeviceSuitable(VkPhysicalDevice d)
 		deviceProperties.deviceType == VK_PHYSICAL_DEVICE_TYPE_DISCRETE_GPU;
 	const bool isIntegratedGPU =
 		deviceProperties.deviceType == VK_PHYSICAL_DEVICE_TYPE_INTEGRATED_GPU;
+	const bool isCPU = deviceProperties.deviceType == VK_PHYSICAL_DEVICE_TYPE_CPU;
 	const bool isGPU = isDiscreteGPU || isIntegratedGPU;
 
-	return isGPU && deviceFeatures.geometryShader;
+	// Ground-truth capture runs on lavapipe.
+	return (isGPU || isCPU) && deviceFeatures.geometryShader;
 }
 
 VkCommandBuffer VulkanContext::BeginOneTimeGraphicsCommand() const

@@ -9,7 +9,7 @@
 // Entry point
 int main()
 {
-	AppPBRShadow app;
+	AppPBRClusterForward app;
 	app.MainLoop();
 	return 0;
 }
