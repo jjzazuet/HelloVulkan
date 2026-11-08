@@ -104,6 +104,11 @@ protected:
 	void WriteGroundTruthImage();
 	// App-specific JSON fragment (scene, camera, lights, settings).
 	virtual std::string GroundTruthMetadata() const { return {}; }
+	// App-specific exact capture state (float bits, raw buffers) written
+	// next to the image so Java parity can reproduce inputs bit-for-bit.
+	virtual void WriteGroundTruthCaptureState(const std::string& imagePath) const {
+		(void)imagePath;
+	}
 	VulkanBuffer captureStaging_{};
 	uint32_t captureFrame_ = 0;
 	bool capturePending_ = false;

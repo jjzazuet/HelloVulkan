@@ -12,6 +12,9 @@
 #include "glm/ext.hpp"
 #include "imgui_impl_vulkan.h"
 
+#include <cstdint>
+#include <cstdio>
+#include <cstring>
 #include <sstream>
 
 AppPBRClusterForward::AppPBRClusterForward() 
@@ -250,6 +253,110 @@ std::string AppPBRClusterForward::GroundTruthMetadata() const
 	}
 	out << "]";
 	return out.str();
+}
+
+
+namespace
+{
+uint32_t FloatBits(float value)
+{
+	uint32_t bits = 0;
+	std::memcpy(&bits, &value, sizeof(bits));
+	return bits;
+}
+
+std::string HexBits(float value)
+{
+	char text[11];
+	std::snprintf(text, sizeof(text), "0x%08x", FloatBits(value));
+	return text;
+}
+
+void WriteBits(std::ostringstream& out, const float* values, size_t count)
+{
+	for (size_t i = 0; i < count; ++i)
+	{
+		if (i) out << ",";
+		out << "\"" << HexBits(values[i]) << "\"";
+	}
+}
+} // namespace
+
+void AppPBRClusterForward::WriteGroundTruthCaptureState(const std::string& imagePath) const
+{
+	// Exact light buffer: 48-byte std430 stride used by the shaders. Padding is
+	// zeroed so the file is deterministic (the GPU never reads it).
+	constexpr size_t LIGHT_STRIDE = 48;
+	std::vector<uint8_t> lightBytes(lights_.size() * LIGHT_STRIDE, 0);
+	for (size_t i = 0; i < lights_.size(); ++i)
+	{
+		float* record = reinterpret_cast<float*>(lightBytes.data() + i * LIGHT_STRIDE);
+		const LightData& light = lights_[i];
+		record[0] = light.position_.x;
+		record[1] = light.position_.y;
+		record[2] = light.position_.z;
+		record[3] = light.position_.w;
+		record[4] = light.color_.x;
+		record[5] = light.color_.y;
+		record[6] = light.color_.z;
+		record[7] = light.color_.w;
+		record[8] = light.radius_;
+	}
+
+	const std::string lightsPath = imagePath + ".lights.bin";
+	if (FILE* file = std::fopen(lightsPath.c_str(), "wb"))
+	{
+		std::fwrite(lightBytes.data(), 1, lightBytes.size(), file);
+		std::fclose(file);
+	}
+
+	const CameraUBO cam = camera_->GetCameraUBO();
+	const glm::mat4 inverseView = glm::inverse(cam.view);
+
+	std::ostringstream out;
+	out << "{";
+	out << "\"format\":\"float32-bits\",";
+	out << "\"width\":" << vulkanContext_.GetSwapchainWidth()
+		<< ",\"height\":" << vulkanContext_.GetSwapchainHeight();
+	out << ",\"camera\":{";
+	out << "\"position\":[\"" << HexBits(cam.position.x) << "\",\""
+		<< HexBits(cam.position.y) << "\",\"" << HexBits(cam.position.z) << "\"]";
+	out << ",\"near\":\"" << HexBits(cam.cameraNear) << "\"";
+	out << ",\"far\":\"" << HexBits(cam.cameraFar) << "\"";
+	out << ",\"view\":["; WriteBits(out, &cam.view[0][0], 16); out << "]";
+	out << ",\"projection\":["; WriteBits(out, &cam.projection[0][0], 16); out << "]";
+	out << ",\"inverseModelview\":["; WriteBits(out, &inverseView[0][0], 16); out << "]";
+	out << "}";
+	out << ",\"lights\":{\"file\":\"lights.bin\",\"count\":" << lights_.size()
+		<< ",\"stride\":" << LIGHT_STRIDE << "}";
+	out << ",\"sampler\":{\"magFilter\":\"LINEAR\",\"minFilter\":\"LINEAR\""
+		<< ",\"mipmapMode\":\"LINEAR\",\"addressMode\":\"REPEAT\""
+		<< ",\"mipLodBias\":\"" << HexBits(0.0f) << "\""
+		<< ",\"anisotropyEnable\":false,\"maxAnisotropy\":\"" << HexBits(1.0f) << "\""
+		<< ",\"minLod\":\"" << HexBits(0.0f) << "\""
+		<< ",\"maxLod\":\"mipCount\""
+		<< ",\"unnormalizedCoordinates\":false}";
+	out << ",\"orbPipeline\":{\"topology\":\"triangle-list\""
+		<< ",\"depthTest\":true,\"depthWrite\":false"
+		<< ",\"depthCompareOp\":\"LESS_OR_EQUAL\""
+		<< ",\"blendEnable\":true"
+		<< ",\"srcColorBlendFactor\":\"SRC_ALPHA\""
+		<< ",\"dstColorBlendFactor\":\"ONE_MINUS_SRC_ALPHA\""
+		<< ",\"srcAlphaBlendFactor\":\"ONE_MINUS_SRC_ALPHA\""
+		<< ",\"dstAlphaBlendFactor\":\"ZERO\""
+		<< ",\"vertexCount\":6,\"msaa\":1}";
+	out << ",\"tonemap\":{\"exposure\":\"" << HexBits(1.0f) << "\""
+		<< ",\"gamma\":\"" << HexBits(2.2f) << "\"}";
+	out << "}";
+
+	const std::string statePath = imagePath + ".state.json";
+	if (FILE* file = std::fopen(statePath.c_str(), "wb"))
+	{
+		const std::string text = out.str();
+		std::fwrite(text.data(), 1, text.size(), file);
+		std::fwrite("\n", 1, 1, file);
+		std::fclose(file);
+	}
 }
 
 void AppPBRClusterForward::MainLoop()

@@ -205,6 +205,7 @@ void AppBase::WriteGroundTruthImage()
 		fprintf(meta, "}\n");
 		fclose(meta);
 	}
+	WriteGroundTruthCaptureState(path);
 }
 
 void AppBase::DrawFrame()

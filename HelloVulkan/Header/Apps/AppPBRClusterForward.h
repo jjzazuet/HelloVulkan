@@ -29,6 +29,7 @@ public:
 	void Init();
 	void InitLights();
 	std::string GroundTruthMetadata() const override;
+	void WriteGroundTruthCaptureState(const std::string& imagePath) const override;
 
 private:
 	std::vector<LightData> lights_{};
